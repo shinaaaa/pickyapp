@@ -24,6 +24,16 @@ export default function Home() {
         </Link>
 
         <Link
+          href="/amp"
+          className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+        >
+          <span className="text-lg font-medium text-zinc-900 dark:text-zinc-50">앰프 시뮬레이터</span>
+          <span className="text-sm text-zinc-500 dark:text-zinc-400">
+            클린·크런치·하이게인 톤으로 실시간 연주하세요
+          </span>
+        </Link>
+
+        <Link
           href="/backing-tracks"
           className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
         >

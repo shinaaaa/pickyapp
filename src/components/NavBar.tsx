@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 
 const LINKS = [
   { href: "/tuner", label: "튜너" },
+  { href: "/amp", label: "앰프" },
   { href: "/backing-tracks", label: "백킹 트랙" },
   { href: "/metronome", label: "메트로놈" },
   { href: "/chords", label: "코드 다이어그램" },
