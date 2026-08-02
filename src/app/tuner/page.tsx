@@ -2,11 +2,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { autoCorrelate, frequencyToNote, NoteInfo } from "@/lib/pitchDetect";
-import { closestString } from "@/lib/guitarStrings";
+import { closestString, getStrings, TUNINGS } from "@/lib/guitarStrings";
 
 export default function TunerPage() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("");
+  const [tuningId, setTuningId] = useState(TUNINGS[0].id);
   const [isListening, setIsListening] = useState(false);
   const [note, setNote] = useState<NoteInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +98,9 @@ export default function TunerPage() {
 
   useEffect(() => stop, [stop]);
 
-  const string = note ? closestString(note.frequency) : null;
+  const tuning = TUNINGS.find((t) => t.id === tuningId) ?? TUNINGS[0];
+  const strings = getStrings(tuning);
+  const string = note ? closestString(note.frequency, strings) : null;
   const cents = note?.cents ?? 0;
   const inTune = note !== null && Math.abs(cents) <= 5;
   const clampedCents = Math.max(-50, Math.min(50, cents));
@@ -131,6 +134,33 @@ export default function TunerPage() {
               </option>
             ))}
           </select>
+
+          <select
+            value={tuningId}
+            onChange={(e) => setTuningId(e.target.value)}
+            className="w-full rounded-lg border border-zinc-300 bg-white px-4 py-2 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+          >
+            {TUNINGS.map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.label}
+              </option>
+            ))}
+          </select>
+
+          <div className="flex justify-center gap-2">
+            {strings.map((s) => (
+              <div
+                key={s.name}
+                className={`flex h-10 w-10 items-center justify-center rounded-lg border text-xs font-medium transition ${
+                  string?.name === s.name
+                    ? "border-green-500 text-green-500"
+                    : "border-zinc-200 text-zinc-500 dark:border-zinc-800 dark:text-zinc-400"
+                }`}
+              >
+                {s.name}
+              </div>
+            ))}
+          </div>
 
           <div className="flex h-64 w-64 flex-col items-center justify-center rounded-full border-8 border-zinc-200 dark:border-zinc-800">
             <span

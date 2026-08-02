@@ -8,9 +8,13 @@ const NUM_FRETS = 4;
 const HEIGHT = TOP_Y + NUM_FRETS * FRET_HEIGHT + 10;
 
 const stringX = (i: number) => MARGIN_X + (i * (WIDTH - 2 * MARGIN_X)) / 5;
-const fretY = (fret: number) => TOP_Y + fret * FRET_HEIGHT;
+const fretY = (row: number) => TOP_Y + row * FRET_HEIGHT;
 
 export default function ChordDiagram({ shape }: { shape: ChordShape }) {
+  const baseFret = shape.baseFret ?? 1;
+  // 절대 프렛 번호를 다이어그램 첫 줄 기준 상대 행 번호로 변환
+  const toRow = (fret: number) => fret - baseFret + 1;
+
   return (
     <svg
       viewBox={`0 0 ${WIDTH} ${HEIGHT}`}
@@ -44,8 +48,21 @@ export default function ChordDiagram({ shape }: { shape: ChordShape }) {
         ) : null
       )}
 
-      {/* 넛(0프렛, 굵은 선) */}
-      <rect x={MARGIN_X} y={TOP_Y - 1.5} width={WIDTH - 2 * MARGIN_X} height={3} fill="currentColor" />
+      {baseFret === 1 ? (
+        // 넛(0프렛, 굵은 선)
+        <rect x={MARGIN_X} y={TOP_Y - 1.5} width={WIDTH - 2 * MARGIN_X} height={3} fill="currentColor" />
+      ) : (
+        // 넛이 아닌 위치에서 시작할 때 시작 프렛 번호 표시
+        <text
+          x={MARGIN_X - 6}
+          y={fretY(0.5) + 3}
+          textAnchor="end"
+          fontSize={8}
+          fill="currentColor"
+        >
+          {baseFret}
+        </text>
+      )}
 
       {/* 프렛 라인 */}
       {Array.from({ length: NUM_FRETS + 1 }).map((_, f) => (
@@ -79,9 +96,9 @@ export default function ChordDiagram({ shape }: { shape: ChordShape }) {
       {shape.barre && (
         <line
           x1={stringX(shape.barre.fromString)}
-          y1={fretY(shape.barre.fret - 0.5)}
+          y1={fretY(toRow(shape.barre.fret) - 0.5)}
           x2={stringX(shape.barre.toString)}
-          y2={fretY(shape.barre.fret - 0.5)}
+          y2={fretY(toRow(shape.barre.fret) - 0.5)}
           stroke="currentColor"
           strokeWidth={7}
           strokeLinecap="round"
@@ -101,13 +118,14 @@ export default function ChordDiagram({ shape }: { shape: ChordShape }) {
         if (coveredByBarre) return null;
 
         const finger = shape.fingers?.[i];
+        const row = toRow(fret);
         return (
           <g key={i}>
-            <circle cx={stringX(i)} cy={fretY(fret - 0.5)} r={6} fill="currentColor" />
+            <circle cx={stringX(i)} cy={fretY(row - 0.5)} r={6} fill="currentColor" />
             {finger && (
               <text
                 x={stringX(i)}
-                y={fretY(fret - 0.5) + 3}
+                y={fretY(row - 0.5) + 3}
                 textAnchor="middle"
                 fontSize={7}
                 className="fill-white dark:fill-black"

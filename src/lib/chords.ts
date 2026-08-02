@@ -4,6 +4,8 @@ export interface ChordShape {
   frets: (number | null)[];
   fingers?: (number | null)[];
   barre?: { fret: number; fromString: number; toString: number };
+  // 다이어그램이 넛(1프렛)이 아닌 위치에서 시작할 때 표시할 시작 프렛 번호
+  baseFret?: number;
 }
 
 export const CHORDS: ChordShape[] = [
@@ -53,3 +55,52 @@ export const CHORDS: ChordShape[] = [
   { name: "G7", frets: [3, 2, 0, 0, 0, 1], fingers: [3, 2, null, null, null, 1] },
   { name: "Gmaj7", frets: [3, 2, 0, 0, 0, 2], fingers: [3, 2, null, null, null, 1] },
 ];
+
+// 6번줄(낮은 E) 기준, E음까지의 반음 거리 — E 셰이프 바레 코드의 시작 프렛 계산용
+const SEMITONES_FROM_E: Record<string, number> = {
+  E: 0,
+  F: 1,
+  "F#": 2,
+  G: 3,
+  "G#": 4,
+  A: 5,
+  "A#": 6,
+  B: 7,
+  C: 8,
+  "C#": 9,
+  D: 10,
+  "D#": 11,
+};
+
+// 오픈 코드 표에 없는 루트는 E 셰이프를 옮겨 잡는 무브어블 바레 코드로 생성
+function generateBarreShape(root: string, quality: "major" | "minor"): ChordShape | null {
+  const barreFret = SEMITONES_FROM_E[root];
+  if (barreFret === undefined || barreFret === 0) return null;
+
+  if (quality === "major") {
+    return {
+      name: `${root} (바레)`,
+      frets: [barreFret, barreFret + 2, barreFret + 2, barreFret + 1, barreFret, barreFret],
+      fingers: [1, 3, 4, 2, 1, 1],
+      barre: { fret: barreFret, fromString: 0, toString: 5 },
+      baseFret: barreFret,
+    };
+  }
+  return {
+    name: `${root}m (바레)`,
+    frets: [barreFret, barreFret + 2, barreFret + 2, barreFret, barreFret, barreFret],
+    fingers: [1, 3, 4, 1, 1, 1],
+    barre: { fret: barreFret, fromString: 0, toString: 5 },
+    baseFret: barreFret,
+  };
+}
+
+export function getChordShape(root: string, quality: "major" | "minor" | "diminished"): ChordShape | null {
+  if (quality === "diminished") return null;
+
+  const lookupName = quality === "minor" ? `${root}m` : root;
+  const found = CHORDS.find((c) => c.name === lookupName);
+  if (found) return found;
+
+  return generateBarreShape(root, quality);
+}
