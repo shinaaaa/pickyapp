@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  Chord,
   ChordType,
   NOTE_NAMES,
   ScaleMode,
@@ -13,6 +14,11 @@ import { getChordShape } from "@/lib/chords";
 import { playChordPad } from "@/lib/chordAudio";
 import ChordDiagram from "@/components/ChordDiagram";
 
+interface ProgressionEntry {
+  degree: number;
+  chordType: ChordType;
+}
+
 function chordLabel(root: string, quality: Parameters<typeof qualitySuffix>[0]) {
   return `${root}${qualitySuffix(quality)}`;
 }
@@ -21,7 +27,7 @@ export default function HarmonyPage() {
   const [key, setKey] = useState("C");
   const [mode, setMode] = useState<ScaleMode>("major");
   const [chordType, setChordType] = useState<ChordType>("triad");
-  const [progression, setProgression] = useState<number[]>([]);
+  const [progression, setProgression] = useState<ProgressionEntry[]>([]);
   const [bpm, setBpm] = useState(90);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
@@ -29,12 +35,26 @@ export default function HarmonyPage() {
   const diatonicChords = getDiatonicChords(key, mode, chordType);
   const romanNumerals = getRomanNumerals(mode);
 
+  const chordsByType = useRef<Record<ChordType, Chord[]>>({
+    triad: getDiatonicChords(key, mode, "triad"),
+    seventh: getDiatonicChords(key, mode, "seventh"),
+  });
+  useEffect(() => {
+    chordsByType.current = {
+      triad: getDiatonicChords(key, mode, "triad"),
+      seventh: getDiatonicChords(key, mode, "seventh"),
+    };
+  }, [key, mode]);
+
+  const chordForEntry = useCallback((entry: ProgressionEntry) => {
+    return chordsByType.current[entry.chordType][entry.degree];
+  }, []);
+
   const audioContextRef = useRef<AudioContext | null>(null);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const indexRef = useRef(0);
-  const progressionRef = useRef<number[]>(progression);
+  const progressionRef = useRef<ProgressionEntry[]>(progression);
   const bpmRef = useRef(bpm);
-  const diatonicChordsRef = useRef(diatonicChords);
 
   useEffect(() => {
     progressionRef.current = progression;
@@ -42,10 +62,6 @@ export default function HarmonyPage() {
   useEffect(() => {
     bpmRef.current = bpm;
   }, [bpm]);
-  useEffect(() => {
-    diatonicChordsRef.current = diatonicChords;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, mode, chordType]);
 
   const ensureAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
@@ -55,17 +71,17 @@ export default function HarmonyPage() {
   }, []);
 
   const previewChord = useCallback(
-    (degree: number) => {
+    (entry: ProgressionEntry) => {
       const ctx = ensureAudioContext();
-      const chord = diatonicChordsRef.current[degree];
-      playChordPad(ctx, ctx.destination, chord, ctx.currentTime, 0.6);
+      playChordPad(ctx, ctx.destination, chordForEntry(entry), ctx.currentTime, 0.6);
     },
-    [ensureAudioContext]
+    [ensureAudioContext, chordForEntry]
   );
 
   const addChord = (degree: number) => {
-    setProgression((prev) => [...prev, degree]);
-    previewChord(degree);
+    const entry: ProgressionEntry = { degree, chordType };
+    setProgression((prev) => [...prev, entry]);
+    previewChord(entry);
   };
 
   const removeAt = (index: number) => {
@@ -81,23 +97,26 @@ export default function HarmonyPage() {
     setCurrentIndex(-1);
   }, []);
 
-  const playStep = useCallback(function step() {
-    const ctx = audioContextRef.current;
-    const seq = progressionRef.current;
-    if (!ctx || seq.length === 0) {
-      stopPlayback();
-      return;
-    }
-    const chordDurationSec = (4 * 60) / bpmRef.current;
-    const degree = seq[indexRef.current % seq.length];
-    setCurrentIndex(indexRef.current % seq.length);
-    playChordPad(ctx, ctx.destination, diatonicChordsRef.current[degree], ctx.currentTime, chordDurationSec);
+  const playStep = useCallback(
+    function step() {
+      const ctx = audioContextRef.current;
+      const seq = progressionRef.current;
+      if (!ctx || seq.length === 0) {
+        stopPlayback();
+        return;
+      }
+      const chordDurationSec = (4 * 60) / bpmRef.current;
+      const entry = seq[indexRef.current % seq.length];
+      setCurrentIndex(indexRef.current % seq.length);
+      playChordPad(ctx, ctx.destination, chordForEntry(entry), ctx.currentTime, chordDurationSec);
 
-    timerRef.current = setTimeout(() => {
-      indexRef.current += 1;
-      step();
-    }, chordDurationSec * 1000);
-  }, [stopPlayback]);
+      timerRef.current = setTimeout(() => {
+        indexRef.current += 1;
+        step();
+      }, chordDurationSec * 1000);
+    },
+    [stopPlayback, chordForEntry]
+  );
 
   const startPlayback = () => {
     if (progression.length === 0) return;
@@ -121,7 +140,8 @@ export default function HarmonyPage() {
       <div className="flex w-full max-w-2xl flex-col items-center gap-2">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">화성학</h1>
         <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
-          키의 다이어토닉 코드를 확인하고, 코드를 눌러 나만의 진행을 만들어보세요.
+          키의 다이어토닉 코드를 확인하고, 코드를 눌러 나만의 진행을 만들어보세요. 트라이어드와 세븐
+          코드를 섞어서 추가할 수 있어요.
         </p>
       </div>
 
@@ -154,27 +174,32 @@ export default function HarmonyPage() {
         </label>
       </div>
 
-      <div className="flex gap-2 rounded-full bg-zinc-200 p-1 dark:bg-zinc-900">
-        <button
-          onClick={() => setChordType("triad")}
-          className={`rounded-full px-4 py-1.5 text-sm transition ${
-            chordType === "triad"
-              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
-              : "text-zinc-500 dark:text-zinc-400"
-          }`}
-        >
-          트라이어드
-        </button>
-        <button
-          onClick={() => setChordType("seventh")}
-          className={`rounded-full px-4 py-1.5 text-sm transition ${
-            chordType === "seventh"
-              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
-              : "text-zinc-500 dark:text-zinc-400"
-          }`}
-        >
-          세븐 코드
-        </button>
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex gap-2 rounded-full bg-zinc-200 p-1 dark:bg-zinc-900">
+          <button
+            onClick={() => setChordType("triad")}
+            className={`rounded-full px-4 py-1.5 text-sm transition ${
+              chordType === "triad"
+                ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
+                : "text-zinc-500 dark:text-zinc-400"
+            }`}
+          >
+            트라이어드
+          </button>
+          <button
+            onClick={() => setChordType("seventh")}
+            className={`rounded-full px-4 py-1.5 text-sm transition ${
+              chordType === "seventh"
+                ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
+                : "text-zinc-500 dark:text-zinc-400"
+            }`}
+          >
+            세븐 코드
+          </button>
+        </div>
+        <span className="text-xs text-zinc-400 dark:text-zinc-500">
+          여기서 고른 타입으로 코드가 추가돼요 — 바꿔가며 섞어보세요
+        </span>
       </div>
 
       <div className="grid w-full max-w-2xl grid-cols-3 gap-3 sm:grid-cols-7">
@@ -220,20 +245,23 @@ export default function HarmonyPage() {
           </p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {progression.map((degree, i) => (
-              <button
-                key={i}
-                onClick={() => removeAt(i)}
-                title="클릭해서 삭제"
-                className={`rounded-full px-3 py-1 text-sm transition ${
-                  isPlaying && currentIndex === i
-                    ? "bg-orange-500 text-white"
-                    : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                }`}
-              >
-                {chordLabel(diatonicChords[degree].root, diatonicChords[degree].quality)}
-              </button>
-            ))}
+            {progression.map((entry, i) => {
+              const chord = chordForEntry(entry);
+              return (
+                <button
+                  key={i}
+                  onClick={() => removeAt(i)}
+                  title="클릭해서 삭제"
+                  className={`rounded-full px-3 py-1 text-sm transition ${
+                    isPlaying && currentIndex === i
+                      ? "bg-orange-500 text-white"
+                      : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                  }`}
+                >
+                  {chordLabel(chord.root, chord.quality)}
+                </button>
+              );
+            })}
           </div>
         )}
 
