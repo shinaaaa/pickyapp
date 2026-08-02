@@ -5,10 +5,12 @@ import { autoCorrelate, frequencyToNote, NoteInfo } from "@/lib/pitchDetect";
 import {
   buildProgression,
   Chord,
+  ChordType,
   MAJOR_PROGRESSION_PRESETS,
   MINOR_PROGRESSION_PRESETS,
   NOTE_NAMES,
   ScaleMode,
+  qualitySuffix,
 } from "@/lib/musicTheory";
 import { getChordShape } from "@/lib/chords";
 import ChordDiagram from "@/components/ChordDiagram";
@@ -42,6 +44,7 @@ function classifyOffset(offsetMs: number): string {
 export default function GeneratedBackingTrack() {
   const [key, setKey] = useState("C");
   const [mode, setMode] = useState<ScaleMode>("major");
+  const [chordType, setChordType] = useState<ChordType>("triad");
   const [presetIndex, setPresetIndex] = useState(0);
   const [bpm, setBpm] = useState(90);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -65,14 +68,14 @@ export default function GeneratedBackingTrack() {
   }, [drumVolume]);
 
   const presets = mode === "major" ? MAJOR_PROGRESSION_PRESETS : MINOR_PROGRESSION_PRESETS;
-  const chords = buildProgression(key, mode, presets[presetIndex].degrees);
+  const chords = buildProgression(key, mode, presets[presetIndex].degrees, chordType);
 
   const chordsRef = useRef<Chord[]>(chords);
   const bpmRef = useRef(bpm);
   useEffect(() => {
     chordsRef.current = chords;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, mode, presetIndex]);
+  }, [key, mode, presetIndex, chordType]);
   useEffect(() => {
     bpmRef.current = bpm;
   }, [bpm]);
@@ -339,6 +342,31 @@ export default function GeneratedBackingTrack() {
         </label>
       </div>
 
+      <div className="flex justify-center gap-2 rounded-full bg-zinc-200 p-1 dark:bg-zinc-900">
+        <button
+          onClick={() => setChordType("triad")}
+          disabled={isPlaying}
+          className={`rounded-full px-4 py-1.5 text-sm transition disabled:opacity-50 ${
+            chordType === "triad"
+              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
+              : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          트라이어드
+        </button>
+        <button
+          onClick={() => setChordType("seventh")}
+          disabled={isPlaying}
+          className={`rounded-full px-4 py-1.5 text-sm transition disabled:opacity-50 ${
+            chordType === "seventh"
+              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
+              : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          세븐 코드
+        </button>
+      </div>
+
       <div className="flex flex-col items-center gap-1">
         <span className="text-sm text-zinc-500 dark:text-zinc-400">{bpm} BPM</span>
         <input
@@ -377,7 +405,7 @@ export default function GeneratedBackingTrack() {
       <div className="grid grid-cols-4 gap-2">
         {chords.map((c, i) => {
           const shape = getChordShape(c.root, c.quality);
-          const label = `${c.root}${c.quality === "minor" ? "m" : c.quality === "diminished" ? "dim" : ""}`;
+          const label = `${c.root}${qualitySuffix(c.quality)}`;
           const isCurrent = isPlaying && i === currentChordIndex;
           return (
             <div
@@ -447,7 +475,7 @@ export default function GeneratedBackingTrack() {
               {detectedNote ? detectedNote.name : "-"}
             </span>
             <span className="text-xs text-zinc-400 dark:text-zinc-500">
-              {currentChord ? `현재 코드: ${currentChord.root}${currentChord.quality === "minor" ? "m" : currentChord.quality === "diminished" ? "dim" : ""} (${currentChord.noteNames.join(", ")})` : ""}
+              {currentChord ? `현재 코드: ${currentChord.root}${qualitySuffix(currentChord.quality)} (${currentChord.noteNames.join(", ")})` : ""}
             </span>
             <div className="relative mt-2 h-2 w-full overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
               <div className="absolute left-1/2 top-0 h-full w-px bg-zinc-400 dark:bg-zinc-600" />
