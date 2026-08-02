@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AMP_TYPES, makeDistortionCurve } from "@/lib/ampTypes";
+import { createReverbImpulse } from "@/lib/ampEffects";
 
 export default function AmpPage() {
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
@@ -13,6 +14,18 @@ export default function AmpPage() {
   const [mid, setMid] = useState(0);
   const [treble, setTreble] = useState(0);
   const [masterVolume, setMasterVolume] = useState(0.7);
+
+  const [chorusRate, setChorusRate] = useState(1.5);
+  const [chorusDepth, setChorusDepth] = useState(3);
+  const [chorusMix, setChorusMix] = useState(0);
+
+  const [delayTime, setDelayTime] = useState(300);
+  const [delayFeedback, setDelayFeedback] = useState(30);
+  const [delayMix, setDelayMix] = useState(0);
+
+  const [reverbDecay, setReverbDecay] = useState(2);
+  const [reverbMix, setReverbMix] = useState(0);
+
   const [error, setError] = useState<string | null>(null);
 
   const ampType = AMP_TYPES.find((a) => a.id === ampTypeId) ?? AMP_TYPES[0];
@@ -36,6 +49,20 @@ export default function AmpPage() {
   const trebleRef = useRef<BiquadFilterNode | null>(null);
   const masterGainRef = useRef<GainNode | null>(null);
 
+  const chorusLfoRef = useRef<OscillatorNode | null>(null);
+  const chorusLfoGainRef = useRef<GainNode | null>(null);
+  const chorusDryRef = useRef<GainNode | null>(null);
+  const chorusWetRef = useRef<GainNode | null>(null);
+
+  const delayNodeRef = useRef<DelayNode | null>(null);
+  const delayFeedbackRef = useRef<GainNode | null>(null);
+  const delayDryRef = useRef<GainNode | null>(null);
+  const delayWetRef = useRef<GainNode | null>(null);
+
+  const convolverRef = useRef<ConvolverNode | null>(null);
+  const reverbDryRef = useRef<GainNode | null>(null);
+  const reverbWetRef = useRef<GainNode | null>(null);
+
   const stop = useCallback(() => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
@@ -49,6 +76,17 @@ export default function AmpPage() {
     midRef.current = null;
     trebleRef.current = null;
     masterGainRef.current = null;
+    chorusLfoRef.current = null;
+    chorusLfoGainRef.current = null;
+    chorusDryRef.current = null;
+    chorusWetRef.current = null;
+    delayNodeRef.current = null;
+    delayFeedbackRef.current = null;
+    delayDryRef.current = null;
+    delayWetRef.current = null;
+    convolverRef.current = null;
+    reverbDryRef.current = null;
+    reverbWetRef.current = null;
     setIsRunning(false);
   }, []);
 
@@ -114,6 +152,63 @@ export default function AmpPage() {
         trebleFilter.gain.value = treble;
         trebleRef.current = trebleFilter;
 
+        // --- 코러스 ---
+        const chorusOut = ctx.createGain();
+        const chorusDry = ctx.createGain();
+        chorusDry.gain.value = 1 - chorusMix / 100;
+        chorusDryRef.current = chorusDry;
+        const chorusWet = ctx.createGain();
+        chorusWet.gain.value = chorusMix / 100;
+        chorusWetRef.current = chorusWet;
+        const chorusDelay = ctx.createDelay(0.05);
+        chorusDelay.delayTime.value = 0.02;
+        const chorusLfo = ctx.createOscillator();
+        chorusLfo.frequency.value = chorusRate;
+        chorusLfoRef.current = chorusLfo;
+        const chorusLfoGain = ctx.createGain();
+        chorusLfoGain.gain.value = chorusDepth / 1000;
+        chorusLfoGainRef.current = chorusLfoGain;
+        chorusLfo.connect(chorusLfoGain).connect(chorusDelay.delayTime);
+        chorusLfo.start();
+
+        trebleFilter.connect(chorusDry).connect(chorusOut);
+        trebleFilter.connect(chorusDelay).connect(chorusWet).connect(chorusOut);
+
+        // --- 딜레이 ---
+        const delayOut = ctx.createGain();
+        const delayDry = ctx.createGain();
+        delayDry.gain.value = 1 - delayMix / 100;
+        delayDryRef.current = delayDry;
+        const delayWet = ctx.createGain();
+        delayWet.gain.value = delayMix / 100;
+        delayWetRef.current = delayWet;
+        const delayNode = ctx.createDelay(1);
+        delayNode.delayTime.value = delayTime / 1000;
+        delayNodeRef.current = delayNode;
+        const delayFeedbackGain = ctx.createGain();
+        delayFeedbackGain.gain.value = delayFeedback / 100;
+        delayFeedbackRef.current = delayFeedbackGain;
+
+        chorusOut.connect(delayDry).connect(delayOut);
+        chorusOut.connect(delayNode);
+        delayNode.connect(delayFeedbackGain).connect(delayNode);
+        delayNode.connect(delayWet).connect(delayOut);
+
+        // --- 리버브 ---
+        const reverbOut = ctx.createGain();
+        const reverbDry = ctx.createGain();
+        reverbDry.gain.value = 1 - reverbMix / 100;
+        reverbDryRef.current = reverbDry;
+        const reverbWet = ctx.createGain();
+        reverbWet.gain.value = reverbMix / 100;
+        reverbWetRef.current = reverbWet;
+        const convolver = ctx.createConvolver();
+        convolver.buffer = createReverbImpulse(ctx, reverbDecay);
+        convolverRef.current = convolver;
+
+        delayOut.connect(reverbDry).connect(reverbOut);
+        delayOut.connect(convolver).connect(reverbWet).connect(reverbOut);
+
         const limiter = ctx.createDynamicsCompressor();
         limiter.threshold.value = -6;
         limiter.knee.value = 0;
@@ -133,10 +228,9 @@ export default function AmpPage() {
           .connect(lowpass)
           .connect(bassFilter)
           .connect(midFilter)
-          .connect(trebleFilter)
-          .connect(limiter)
-          .connect(masterGain)
-          .connect(ctx.destination);
+          .connect(trebleFilter);
+
+        reverbOut.connect(limiter).connect(masterGain).connect(ctx.destination);
 
         const list = await navigator.mediaDevices.enumerateDevices();
         setDevices(list.filter((d) => d.kind === "audioinput"));
@@ -183,6 +277,38 @@ export default function AmpPage() {
   useEffect(() => {
     if (masterGainRef.current) masterGainRef.current.gain.value = masterVolume;
   }, [masterVolume]);
+
+  useEffect(() => {
+    if (chorusLfoRef.current) chorusLfoRef.current.frequency.value = chorusRate;
+  }, [chorusRate]);
+  useEffect(() => {
+    if (chorusLfoGainRef.current) chorusLfoGainRef.current.gain.value = chorusDepth / 1000;
+  }, [chorusDepth]);
+  useEffect(() => {
+    if (chorusDryRef.current) chorusDryRef.current.gain.value = 1 - chorusMix / 100;
+    if (chorusWetRef.current) chorusWetRef.current.gain.value = chorusMix / 100;
+  }, [chorusMix]);
+
+  useEffect(() => {
+    if (delayNodeRef.current) delayNodeRef.current.delayTime.value = delayTime / 1000;
+  }, [delayTime]);
+  useEffect(() => {
+    if (delayFeedbackRef.current) delayFeedbackRef.current.gain.value = delayFeedback / 100;
+  }, [delayFeedback]);
+  useEffect(() => {
+    if (delayDryRef.current) delayDryRef.current.gain.value = 1 - delayMix / 100;
+    if (delayWetRef.current) delayWetRef.current.gain.value = delayMix / 100;
+  }, [delayMix]);
+
+  useEffect(() => {
+    if (convolverRef.current && audioContextRef.current) {
+      convolverRef.current.buffer = createReverbImpulse(audioContextRef.current, reverbDecay);
+    }
+  }, [reverbDecay]);
+  useEffect(() => {
+    if (reverbDryRef.current) reverbDryRef.current.gain.value = 1 - reverbMix / 100;
+    if (reverbWetRef.current) reverbWetRef.current.gain.value = reverbMix / 100;
+  }, [reverbMix]);
 
   return (
     <div className="flex flex-1 flex-col items-center gap-8 bg-zinc-50 px-6 py-16 dark:bg-black">
@@ -246,6 +372,86 @@ export default function AmpPage() {
               step={0.01}
               format={(v) => `${Math.round(v * 100)}%`}
               onChange={setMasterVolume}
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">코러스</span>
+            <Knob
+              label="레이트"
+              value={chorusRate}
+              min={0.1}
+              max={5}
+              step={0.1}
+              format={(v) => `${v.toFixed(1)} Hz`}
+              onChange={setChorusRate}
+            />
+            <Knob
+              label="뎁스"
+              value={chorusDepth}
+              min={0}
+              max={10}
+              step={0.5}
+              format={(v) => `${v} ms`}
+              onChange={setChorusDepth}
+            />
+            <Knob
+              label="믹스"
+              value={chorusMix}
+              min={0}
+              max={100}
+              format={(v) => `${v}%`}
+              onChange={setChorusMix}
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">딜레이</span>
+            <Knob
+              label="타임"
+              value={delayTime}
+              min={50}
+              max={800}
+              step={10}
+              format={(v) => `${v} ms`}
+              onChange={setDelayTime}
+            />
+            <Knob
+              label="피드백"
+              value={delayFeedback}
+              min={0}
+              max={90}
+              format={(v) => `${v}%`}
+              onChange={setDelayFeedback}
+            />
+            <Knob
+              label="믹스"
+              value={delayMix}
+              min={0}
+              max={100}
+              format={(v) => `${v}%`}
+              onChange={setDelayMix}
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">리버브</span>
+            <Knob
+              label="디케이"
+              value={reverbDecay}
+              min={0.5}
+              max={4}
+              step={0.1}
+              format={(v) => `${v.toFixed(1)}초`}
+              onChange={setReverbDecay}
+            />
+            <Knob
+              label="믹스"
+              value={reverbMix}
+              min={0}
+              max={100}
+              format={(v) => `${v}%`}
+              onChange={setReverbMix}
             />
           </div>
 
