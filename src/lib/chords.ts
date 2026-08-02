@@ -72,33 +72,54 @@ const SEMITONES_FROM_E: Record<string, number> = {
   "D#": 11,
 };
 
-// 오픈 코드 표에 없는 루트는 E 셰이프를 옮겨 잡는 무브어블 바레 코드로 생성
-function generateBarreShape(root: string, quality: "major" | "minor"): ChordShape | null {
-  const barreFret = SEMITONES_FROM_E[root];
-  if (barreFret === undefined || barreFret === 0) return null;
+type BarreableQuality = "major" | "minor" | "major7" | "minor7" | "dominant7";
 
-  if (quality === "major") {
-    return {
-      name: `${root} (바레)`,
-      frets: [barreFret, barreFret + 2, barreFret + 2, barreFret + 1, barreFret, barreFret],
-      fingers: [1, 3, 4, 2, 1, 1],
-      barre: { fret: barreFret, fromString: 0, toString: 5 },
-      baseFret: barreFret,
-    };
+// E 셰이프 오픈 코드([0,2,2,1,0,0] 형태) 기준 각 코드 타입의 상대 프렛/손가락
+const BARRE_SHAPE: Record<BarreableQuality, { relativeFrets: number[]; fingers: (number | null)[] }> = {
+  major: { relativeFrets: [0, 2, 2, 1, 0, 0], fingers: [1, 3, 4, 2, 1, 1] },
+  minor: { relativeFrets: [0, 2, 2, 0, 0, 0], fingers: [1, 3, 4, 1, 1, 1] },
+  major7: { relativeFrets: [0, 2, 1, 1, 0, 0], fingers: [1, 3, 2, 2, 1, 1] },
+  minor7: { relativeFrets: [0, 2, 0, 0, 0, 0], fingers: [1, 3, 1, 1, 1, 1] },
+  dominant7: { relativeFrets: [0, 2, 0, 1, 0, 0], fingers: [1, 3, 1, 2, 1, 1] },
+};
+
+// 오픈 코드 표에 없는 루트는 E 셰이프를 옮겨 잡는 무브어블 바레 코드로 생성.
+// 루트가 E(barreFret===0)면 바레 없이 그대로 개방현 위치의 셰이프가 된다.
+function generateBarreShape(root: string, quality: BarreableQuality): ChordShape | null {
+  const barreFret = SEMITONES_FROM_E[root];
+  if (barreFret === undefined) return null;
+
+  const shape = BARRE_SHAPE[quality];
+  const suffix = quality === "major" ? "" : quality === "minor" ? "m" : quality === "major7" ? "maj7" : quality === "minor7" ? "m7" : "7";
+  const frets = shape.relativeFrets.map((f) => f + barreFret);
+
+  if (barreFret === 0) {
+    return { name: `${root}${suffix}`, frets, fingers: shape.fingers, baseFret: 1 };
   }
+
   return {
-    name: `${root}m (바레)`,
-    frets: [barreFret, barreFret + 2, barreFret + 2, barreFret, barreFret, barreFret],
-    fingers: [1, 3, 4, 1, 1, 1],
+    name: `${root}${suffix} (바레)`,
+    frets,
+    fingers: shape.fingers,
     barre: { fret: barreFret, fromString: 0, toString: 5 },
     baseFret: barreFret,
   };
 }
 
-export function getChordShape(root: string, quality: "major" | "minor" | "diminished"): ChordShape | null {
-  if (quality === "diminished") return null;
+const QUALITY_SUFFIX: Partial<Record<string, string>> = {
+  minor: "m",
+  major7: "maj7",
+  minor7: "m7",
+  dominant7: "7",
+};
 
-  const lookupName = quality === "minor" ? `${root}m` : root;
+export function getChordShape(
+  root: string,
+  quality: "major" | "minor" | "diminished" | "major7" | "minor7" | "dominant7" | "halfDiminished7" | "diminished7"
+): ChordShape | null {
+  if (quality === "diminished" || quality === "halfDiminished7" || quality === "diminished7") return null;
+
+  const lookupName = `${root}${QUALITY_SUFFIX[quality] ?? ""}`;
   const found = CHORDS.find((c) => c.name === lookupName);
   if (found) return found;
 

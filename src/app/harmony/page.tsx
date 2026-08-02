@@ -2,30 +2,31 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ChordType,
   NOTE_NAMES,
   ScaleMode,
   getDiatonicChords,
   getRomanNumerals,
+  qualitySuffix,
 } from "@/lib/musicTheory";
 import { getChordShape } from "@/lib/chords";
 import { playChordPad } from "@/lib/chordAudio";
 import ChordDiagram from "@/components/ChordDiagram";
 
-function chordLabel(root: string, quality: string) {
-  if (quality === "minor") return `${root}m`;
-  if (quality === "diminished") return `${root}dim`;
-  return root;
+function chordLabel(root: string, quality: Parameters<typeof qualitySuffix>[0]) {
+  return `${root}${qualitySuffix(quality)}`;
 }
 
 export default function HarmonyPage() {
   const [key, setKey] = useState("C");
   const [mode, setMode] = useState<ScaleMode>("major");
+  const [chordType, setChordType] = useState<ChordType>("triad");
   const [progression, setProgression] = useState<number[]>([]);
   const [bpm, setBpm] = useState(90);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(-1);
 
-  const diatonicChords = getDiatonicChords(key, mode);
+  const diatonicChords = getDiatonicChords(key, mode, chordType);
   const romanNumerals = getRomanNumerals(mode);
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -44,7 +45,7 @@ export default function HarmonyPage() {
   useEffect(() => {
     diatonicChordsRef.current = diatonicChords;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, mode]);
+  }, [key, mode, chordType]);
 
   const ensureAudioContext = useCallback(() => {
     if (!audioContextRef.current) {
@@ -151,6 +152,29 @@ export default function HarmonyPage() {
             <option value="minor">마이너</option>
           </select>
         </label>
+      </div>
+
+      <div className="flex gap-2 rounded-full bg-zinc-200 p-1 dark:bg-zinc-900">
+        <button
+          onClick={() => setChordType("triad")}
+          className={`rounded-full px-4 py-1.5 text-sm transition ${
+            chordType === "triad"
+              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
+              : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          트라이어드
+        </button>
+        <button
+          onClick={() => setChordType("seventh")}
+          className={`rounded-full px-4 py-1.5 text-sm transition ${
+            chordType === "seventh"
+              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
+              : "text-zinc-500 dark:text-zinc-400"
+          }`}
+        >
+          세븐 코드
+        </button>
       </div>
 
       <div className="grid w-full max-w-2xl grid-cols-3 gap-3 sm:grid-cols-7">
