@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/metronome", label: "메트로놈" },
   { href: "/chords", label: "코드 다이어그램" },
   { href: "/scales", label: "스케일" },
+  { href: "/harmony", label: "화성학" },
 ];
 
 export default function NavBar() {

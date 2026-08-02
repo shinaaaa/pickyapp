@@ -62,3 +62,15 @@ export const MINOR_PROGRESSION_PRESETS: ProgressionPreset[] = [
   { name: "i - VI - III - VII", degrees: [0, 5, 2, 6] },
   { name: "i - iv - VII - III", degrees: [0, 3, 6, 2] },
 ];
+
+const MAJOR_ROMAN = ["I", "ii", "iii", "IV", "V", "vi", "vii°"];
+const MINOR_ROMAN = ["i", "ii°", "III", "iv", "v", "VI", "VII"];
+
+// 한 키의 7개 다이어토닉 코드 (스케일 디그리 0~6 순서)
+export function getDiatonicChords(keyRoot: string, mode: ScaleMode): Chord[] {
+  return buildProgression(keyRoot, mode, [0, 1, 2, 3, 4, 5, 6]);
+}
+
+export function getRomanNumerals(mode: ScaleMode): string[] {
+  return mode === "major" ? MAJOR_ROMAN : MINOR_ROMAN;
+}
