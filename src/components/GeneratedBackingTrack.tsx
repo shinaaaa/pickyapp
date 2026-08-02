@@ -12,10 +12,12 @@ import {
 } from "@/lib/musicTheory";
 import { getChordShape } from "@/lib/chords";
 import ChordDiagram from "@/components/ChordDiagram";
+import { createNoiseBuffer, KICK_STEPS, playHihat, playKick, playSnare, SNARE_STEPS } from "@/lib/drums";
 
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SEC = 0.1;
 const BEATS_PER_CHORD = 4;
+const STEPS_PER_BEAT = 2; // 8분음표 단위로 스케줄링 (하이햇용)
 const ONSET_RMS_THRESHOLD = 0.05;
 const MAX_BEAT_HISTORY = 40;
 
@@ -52,6 +54,16 @@ export default function GeneratedBackingTrack() {
   const [matchStatus, setMatchStatus] = useState<"match" | "mismatch" | null>(null);
   const [rhythmFeedback, setRhythmFeedback] = useState<RhythmFeedback | null>(null);
 
+  const [drumsEnabled, setDrumsEnabled] = useState(true);
+  const [drumVolume, setDrumVolume] = useState(0.6);
+  const drumsEnabledRef = useRef(drumsEnabled);
+  useEffect(() => {
+    drumsEnabledRef.current = drumsEnabled;
+  }, [drumsEnabled]);
+  useEffect(() => {
+    if (drumGainRef.current) drumGainRef.current.gain.value = drumVolume;
+  }, [drumVolume]);
+
   const presets = mode === "major" ? MAJOR_PROGRESSION_PRESETS : MINOR_PROGRESSION_PRESETS;
   const chords = buildProgression(key, mode, presets[presetIndex].degrees);
 
@@ -70,52 +82,58 @@ export default function GeneratedBackingTrack() {
   const drawRafRef = useRef<number | null>(null);
   const analysisRafRef = useRef<number | null>(null);
   const nextNoteTimeRef = useRef(0);
-  const beatCounterRef = useRef(0);
+  const stepCounterRef = useRef(0);
   const queuedBeatsRef = useRef<QueuedBeat[]>([]);
   const beatTimesRef = useRef<number[]>([]);
+  const noiseBufferRef = useRef<AudioBuffer | null>(null);
+  const drumGainRef = useRef<GainNode | null>(null);
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const aboveThresholdRef = useRef(false);
 
-  const scheduleBeat = useCallback((beatNumber: number, time: number) => {
+  const scheduleStep = useCallback((step: number, time: number) => {
     const ctx = audioContextRef.current;
     if (!ctx) return;
 
-    const beatInChord = beatNumber % BEATS_PER_CHORD;
-    const chordIndex = Math.floor(beatNumber / BEATS_PER_CHORD) % chordsRef.current.length;
-    queuedBeatsRef.current.push({ beatInChord, chordIndex, time });
+    const isOnBeat = step % STEPS_PER_BEAT === 0;
 
-    beatTimesRef.current.push(time);
-    if (beatTimesRef.current.length > MAX_BEAT_HISTORY) beatTimesRef.current.shift();
+    if (isOnBeat) {
+      const beatIndex = step / STEPS_PER_BEAT;
+      const beatInChord = beatIndex % BEATS_PER_CHORD;
+      const chordIndex = Math.floor(beatIndex / BEATS_PER_CHORD) % chordsRef.current.length;
+      queuedBeatsRef.current.push({ beatInChord, chordIndex, time });
 
-    const click = ctx.createOscillator();
-    const clickGain = ctx.createGain();
-    click.frequency.value = beatInChord === 0 ? 1000 : 800;
-    clickGain.gain.setValueAtTime(0.25, time);
-    clickGain.gain.exponentialRampToValueAtTime(0.001, time + 0.03);
-    click.connect(clickGain);
-    clickGain.connect(ctx.destination);
-    click.start(time);
-    click.stop(time + 0.03);
+      beatTimesRef.current.push(time);
+      if (beatTimesRef.current.length > MAX_BEAT_HISTORY) beatTimesRef.current.shift();
 
-    if (beatInChord === 0) {
-      const chord = chordsRef.current[chordIndex];
-      const chordDurationSec = (BEATS_PER_CHORD * 60) / bpmRef.current;
-      chord.frequencies.forEach((freq) => {
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "triangle";
-        osc.frequency.value = freq;
-        gain.gain.setValueAtTime(0, time);
-        gain.gain.linearRampToValueAtTime(0.1, time + 0.05);
-        gain.gain.setValueAtTime(0.1, Math.max(time + 0.05, time + chordDurationSec - 0.1));
-        gain.gain.linearRampToValueAtTime(0, time + chordDurationSec);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(time);
-        osc.stop(time + chordDurationSec + 0.05);
-      });
+      if (beatInChord === 0) {
+        const chord = chordsRef.current[chordIndex];
+        const chordDurationSec = (BEATS_PER_CHORD * 60) / bpmRef.current;
+        chord.frequencies.forEach((freq) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = "triangle";
+          osc.frequency.value = freq;
+          gain.gain.setValueAtTime(0, time);
+          gain.gain.linearRampToValueAtTime(0.1, time + 0.05);
+          gain.gain.setValueAtTime(0.1, Math.max(time + 0.05, time + chordDurationSec - 0.1));
+          gain.gain.linearRampToValueAtTime(0, time + chordDurationSec);
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(time);
+          osc.stop(time + chordDurationSec + 0.05);
+        });
+      }
+    }
+
+    const drumGain = drumGainRef.current;
+    const noiseBuffer = noiseBufferRef.current;
+    if (drumsEnabledRef.current && drumGain && noiseBuffer) {
+      const stepInBar = step % (BEATS_PER_CHORD * STEPS_PER_BEAT);
+      if (KICK_STEPS.includes(stepInBar)) playKick(ctx, drumGain, time);
+      if (SNARE_STEPS.includes(stepInBar)) playSnare(ctx, noiseBuffer, drumGain, time);
+      playHihat(ctx, noiseBuffer, drumGain, time);
     }
   }, []);
 
@@ -123,14 +141,15 @@ export default function GeneratedBackingTrack() {
     function tick() {
       const ctx = audioContextRef.current;
       if (!ctx) return;
+      const secondsPerStep = 60.0 / bpmRef.current / STEPS_PER_BEAT;
       while (nextNoteTimeRef.current < ctx.currentTime + SCHEDULE_AHEAD_SEC) {
-        scheduleBeat(beatCounterRef.current, nextNoteTimeRef.current);
-        nextNoteTimeRef.current += 60.0 / bpmRef.current;
-        beatCounterRef.current += 1;
+        scheduleStep(stepCounterRef.current, nextNoteTimeRef.current);
+        nextNoteTimeRef.current += secondsPerStep;
+        stepCounterRef.current += 1;
       }
       timerIdRef.current = setTimeout(tick, LOOKAHEAD_MS);
     },
-    [scheduleBeat]
+    [scheduleStep]
   );
 
   const drawLoop = useCallback(function loop() {
@@ -210,6 +229,8 @@ export default function GeneratedBackingTrack() {
 
     audioContextRef.current?.close();
     audioContextRef.current = null;
+    noiseBufferRef.current = null;
+    drumGainRef.current = null;
 
     queuedBeatsRef.current = [];
     beatTimesRef.current = [];
@@ -238,7 +259,13 @@ export default function GeneratedBackingTrack() {
       source.connect(analyser);
       analyserRef.current = analyser;
 
-      beatCounterRef.current = 0;
+      const drumGain = ctx.createGain();
+      drumGain.gain.value = drumVolume;
+      drumGain.connect(ctx.destination);
+      drumGainRef.current = drumGain;
+      noiseBufferRef.current = createNoiseBuffer(ctx);
+
+      stepCounterRef.current = 0;
       nextNoteTimeRef.current = ctx.currentTime + 0.05;
       queuedBeatsRef.current = [];
       beatTimesRef.current = [];
@@ -250,7 +277,7 @@ export default function GeneratedBackingTrack() {
     } catch {
       setMicError("마이크/오디오 인터페이스에 접근할 수 없습니다. 브라우저 권한을 확인해주세요.");
     }
-  }, [scheduler, drawLoop, analysisLoop]);
+  }, [scheduler, drawLoop, analysisLoop, drumVolume]);
 
   useEffect(() => stop, [stop]);
 
@@ -321,6 +348,29 @@ export default function GeneratedBackingTrack() {
           value={bpm}
           onChange={(e) => setBpm(Number(e.target.value))}
           className="w-full accent-zinc-900 dark:accent-zinc-50"
+        />
+      </div>
+
+      <div className="flex items-center gap-3 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+        <button
+          onClick={() => setDrumsEnabled((v) => !v)}
+          className={`rounded-full px-4 py-1 text-xs transition ${
+            drumsEnabled
+              ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-black"
+              : "border border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+          }`}
+        >
+          드럼비트 {drumsEnabled ? "켜짐" : "꺼짐"}
+        </button>
+        <input
+          type="range"
+          min={0}
+          max={1}
+          step={0.05}
+          value={drumVolume}
+          disabled={!drumsEnabled}
+          onChange={(e) => setDrumVolume(Number(e.target.value))}
+          className="flex-1 accent-zinc-900 disabled:opacity-40 dark:accent-zinc-50"
         />
       </div>
 
