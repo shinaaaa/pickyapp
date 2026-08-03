@@ -2,12 +2,15 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { nextStrum, Strum, STRUMMING_PRESETS } from "@/lib/strumming";
+import { classifyOffset, nearestOffsetMs, RhythmFeedback } from "@/lib/rhythmFeedback";
 
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SEC = 0.1;
 const STEPS_PER_BAR = 8;
 const MIN_BPM = 40;
 const MAX_BPM = 200;
+const ONSET_RMS_THRESHOLD = 0.05;
+const MAX_TIME_HISTORY = 40;
 
 interface QueuedStep {
   step: number;
@@ -23,6 +26,8 @@ export default function StrummingPage() {
   const [presetIndex, setPresetIndex] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
+  const [micError, setMicError] = useState<string | null>(null);
+  const [rhythmFeedback, setRhythmFeedback] = useState<RhythmFeedback | null>(null);
 
   const [rampEnabled, setRampEnabled] = useState(false);
   const [targetBpm, setTargetBpm] = useState(140);
@@ -61,6 +66,12 @@ export default function StrummingPage() {
   const stepCounterRef = useRef(0);
   const queuedStepsRef = useRef<QueuedStep[]>([]);
 
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const analysisRafRef = useRef<number | null>(null);
+  const aboveThresholdRef = useRef(false);
+  const stepTimesRef = useRef<number[]>([]);
+
   const scheduleStep = useCallback((step: number, time: number) => {
     const ctx = audioContextRef.current;
     if (!ctx) return;
@@ -70,6 +81,9 @@ export default function StrummingPage() {
 
     const strum = patternRef.current[idx];
     if (strum === "rest") return;
+
+    stepTimesRef.current.push(time);
+    if (stepTimesRef.current.length > MAX_TIME_HISTORY) stepTimesRef.current.shift();
 
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
@@ -110,28 +124,81 @@ export default function StrummingPage() {
     rafRef.current = requestAnimationFrame(loop);
   }, []);
 
+  const analysisLoop = useCallback(function loop() {
+    const ctx = audioContextRef.current;
+    const analyser = analyserRef.current;
+    if (!ctx || !analyser) return;
+
+    const buffer = new Float32Array(analyser.fftSize);
+    analyser.getFloatTimeDomainData(buffer);
+
+    let rms = 0;
+    for (let i = 0; i < buffer.length; i++) rms += buffer[i] * buffer[i];
+    rms = Math.sqrt(rms / buffer.length);
+
+    if (rms > ONSET_RMS_THRESHOLD && !aboveThresholdRef.current) {
+      aboveThresholdRef.current = true;
+      const offsetMs = nearestOffsetMs(ctx.currentTime, stepTimesRef.current);
+      if (offsetMs !== null) {
+        setRhythmFeedback({ offsetMs, label: classifyOffset(offsetMs) });
+      }
+    } else if (rms < ONSET_RMS_THRESHOLD * 0.6) {
+      aboveThresholdRef.current = false;
+    }
+
+    analysisRafRef.current = requestAnimationFrame(loop);
+  }, []);
+
   const stop = useCallback(() => {
     if (timerIdRef.current) clearTimeout(timerIdRef.current);
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    if (analysisRafRef.current) cancelAnimationFrame(analysisRafRef.current);
     timerIdRef.current = null;
     rafRef.current = null;
+    analysisRafRef.current = null;
+
+    micStreamRef.current?.getTracks().forEach((t) => t.stop());
+    micStreamRef.current = null;
+    analyserRef.current = null;
+
     audioContextRef.current?.close();
     audioContextRef.current = null;
     queuedStepsRef.current = [];
+    stepTimesRef.current = [];
     setIsPlaying(false);
     setCurrentStep(-1);
+    setRhythmFeedback(null);
   }, []);
 
-  const start = useCallback(() => {
-    const ctx = new AudioContext();
-    audioContextRef.current = ctx;
-    stepCounterRef.current = 0;
-    nextNoteTimeRef.current = ctx.currentTime + 0.05;
-    queuedStepsRef.current = [];
-    setIsPlaying(true);
-    scheduler();
-    rafRef.current = requestAnimationFrame(draw);
-  }, [scheduler, draw]);
+  const start = useCallback(async () => {
+    setMicError(null);
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+      micStreamRef.current = stream;
+
+      const ctx = new AudioContext();
+      audioContextRef.current = ctx;
+
+      const source = ctx.createMediaStreamSource(stream);
+      const analyser = ctx.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      stepCounterRef.current = 0;
+      nextNoteTimeRef.current = ctx.currentTime + 0.05;
+      queuedStepsRef.current = [];
+      stepTimesRef.current = [];
+      setIsPlaying(true);
+      scheduler();
+      rafRef.current = requestAnimationFrame(draw);
+      analysisRafRef.current = requestAnimationFrame(analysisLoop);
+    } catch {
+      setMicError("마이크/오디오 인터페이스에 접근할 수 없습니다. 브라우저 권한을 확인해주세요.");
+    }
+  }, [scheduler, draw, analysisLoop]);
 
   useEffect(() => stop, [stop]);
 
@@ -286,6 +353,18 @@ export default function StrummingPage() {
             {isPlaying ? "정지" : "시작"}
           </button>
         </div>
+        {micError && <p className="text-center text-sm text-red-500">{micError}</p>}
+
+        {isPlaying && (
+          <div className="flex flex-col items-center gap-1 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">박자 정확도</span>
+            <span className="text-lg font-medium text-zinc-900 dark:text-zinc-50">
+              {rhythmFeedback
+                ? `${rhythmFeedback.label} (${rhythmFeedback.offsetMs > 0 ? "+" : ""}${Math.round(rhythmFeedback.offsetMs)}ms)`
+                : "스트로크를 쳐보세요"}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
