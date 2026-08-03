@@ -3,9 +3,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { autoCorrelate, frequencyToNote, NoteInfo } from "@/lib/pitchDetect";
 import {
-  buildProgression,
   Chord,
   ChordType,
+  getDiatonicChords,
   MAJOR_PROGRESSION_PRESETS,
   MINOR_PROGRESSION_PRESETS,
   NOTE_NAMES,
@@ -44,8 +44,8 @@ function classifyOffset(offsetMs: number): string {
 export default function GeneratedBackingTrack() {
   const [key, setKey] = useState("C");
   const [mode, setMode] = useState<ScaleMode>("major");
-  const [chordType, setChordType] = useState<ChordType>("triad");
   const [presetIndex, setPresetIndex] = useState(0);
+  const [chordTypes, setChordTypes] = useState<ChordType[]>(["triad", "triad", "triad", "triad"]);
   const [bpm, setBpm] = useState(90);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -68,17 +68,33 @@ export default function GeneratedBackingTrack() {
   }, [drumVolume]);
 
   const presets = mode === "major" ? MAJOR_PROGRESSION_PRESETS : MINOR_PROGRESSION_PRESETS;
-  const chords = buildProgression(key, mode, presets[presetIndex].degrees, chordType);
+  const degrees = presets[presetIndex].degrees;
+  const diatonicTriads = getDiatonicChords(key, mode, "triad");
+  const diatonicSevenths = getDiatonicChords(key, mode, "seventh");
+  const chords = degrees.map((d, i) =>
+    chordTypes[i] === "seventh" ? diatonicSevenths[d] : diatonicTriads[d]
+  );
 
   const chordsRef = useRef<Chord[]>(chords);
   const bpmRef = useRef(bpm);
   useEffect(() => {
     chordsRef.current = chords;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [key, mode, presetIndex, chordType]);
+  }, [key, mode, presetIndex, chordTypes]);
   useEffect(() => {
     bpmRef.current = bpm;
   }, [bpm]);
+  useEffect(() => {
+    setChordTypes(Array(degrees.length).fill("triad"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetIndex, mode]);
+
+  const toggleChordTypeAt = (index: number) => {
+    if (isPlaying) return;
+    setChordTypes((prev) =>
+      prev.map((t, i) => (i === index ? (t === "triad" ? "seventh" : "triad") : t))
+    );
+  };
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const timerIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -342,30 +358,9 @@ export default function GeneratedBackingTrack() {
         </label>
       </div>
 
-      <div className="flex justify-center gap-2 rounded-full bg-zinc-200 p-1 dark:bg-zinc-900">
-        <button
-          onClick={() => setChordType("triad")}
-          disabled={isPlaying}
-          className={`rounded-full px-4 py-1.5 text-sm transition disabled:opacity-50 ${
-            chordType === "triad"
-              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
-              : "text-zinc-500 dark:text-zinc-400"
-          }`}
-        >
-          트라이어드
-        </button>
-        <button
-          onClick={() => setChordType("seventh")}
-          disabled={isPlaying}
-          className={`rounded-full px-4 py-1.5 text-sm transition disabled:opacity-50 ${
-            chordType === "seventh"
-              ? "bg-white text-zinc-900 shadow dark:bg-zinc-700 dark:text-zinc-50"
-              : "text-zinc-500 dark:text-zinc-400"
-          }`}
-        >
-          세븐 코드
-        </button>
-      </div>
+      <p className="text-center text-xs text-zinc-400 dark:text-zinc-500">
+        각 코드 카드의 배지를 눌러 트라이어드/세븐 코드를 섞어보세요
+      </p>
 
       <div className="flex flex-col items-center gap-1">
         <span className="text-sm text-zinc-500 dark:text-zinc-400">{bpm} BPM</span>
@@ -423,6 +418,17 @@ export default function GeneratedBackingTrack() {
               >
                 {label}
               </span>
+              <button
+                onClick={() => toggleChordTypeAt(i)}
+                disabled={isPlaying}
+                className={`rounded-full px-2 py-0.5 text-[10px] transition disabled:opacity-50 ${
+                  chordTypes[i] === "seventh"
+                    ? "bg-zinc-900 text-white dark:bg-zinc-50 dark:text-black"
+                    : "border border-zinc-300 text-zinc-500 dark:border-zinc-700 dark:text-zinc-400"
+                }`}
+              >
+                {chordTypes[i] === "seventh" ? "7th" : "triad"}
+              </button>
               {shape ? (
                 <ChordDiagram shape={shape} />
               ) : (
