@@ -14,7 +14,7 @@ import {
   qualitySuffix,
 } from "@/lib/musicTheory";
 import { getChordShape } from "@/lib/chords";
-import { playChordPad } from "@/lib/chordAudio";
+import { ensureKarplusStrongWorklet, playChordPad } from "@/lib/chordAudio";
 import ChordDiagram from "@/components/ChordDiagram";
 
 type ProgressionEntry =
@@ -74,16 +74,18 @@ export default function HarmonyPage() {
     bpmRef.current = bpm;
   }, [bpm]);
 
-  const ensureAudioContext = useCallback(() => {
+  const ensureAudioContext = useCallback(async () => {
     if (!audioContextRef.current) {
-      audioContextRef.current = new AudioContext();
+      const ctx = new AudioContext();
+      await ensureKarplusStrongWorklet(ctx);
+      audioContextRef.current = ctx;
     }
     return audioContextRef.current;
   }, []);
 
   const previewChord = useCallback(
-    (entry: ProgressionEntry) => {
-      const ctx = ensureAudioContext();
+    async (entry: ProgressionEntry) => {
+      const ctx = await ensureAudioContext();
       playChordPad(ctx, ctx.destination, chordForEntry(entry), ctx.currentTime, 0.6);
     },
     [ensureAudioContext, chordForEntry]
@@ -132,9 +134,9 @@ export default function HarmonyPage() {
     [stopPlayback, chordForEntry]
   );
 
-  const startPlayback = () => {
+  const startPlayback = async () => {
     if (progression.length === 0) return;
-    ensureAudioContext();
+    await ensureAudioContext();
     indexRef.current = 0;
     setIsPlaying(true);
     playStep();

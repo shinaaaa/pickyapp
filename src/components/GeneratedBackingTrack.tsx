@@ -15,6 +15,7 @@ import {
 import { getChordShape } from "@/lib/chords";
 import ChordDiagram from "@/components/ChordDiagram";
 import { createNoiseBuffer, KICK_STEPS, playHihat, playKick, playSnare, SNARE_STEPS } from "@/lib/drums";
+import { ensureKarplusStrongWorklet, playChordPad } from "@/lib/chordAudio";
 
 const LOOKAHEAD_MS = 25;
 const SCHEDULE_AHEAD_SEC = 0.1;
@@ -129,20 +130,7 @@ export default function GeneratedBackingTrack() {
       if (beatInChord === 0) {
         const chord = chordsRef.current[chordIndex];
         const chordDurationSec = (BEATS_PER_CHORD * 60) / bpmRef.current;
-        chord.frequencies.forEach((freq) => {
-          const osc = ctx.createOscillator();
-          const gain = ctx.createGain();
-          osc.type = "triangle";
-          osc.frequency.value = freq;
-          gain.gain.setValueAtTime(0, time);
-          gain.gain.linearRampToValueAtTime(0.1, time + 0.05);
-          gain.gain.setValueAtTime(0.1, Math.max(time + 0.05, time + chordDurationSec - 0.1));
-          gain.gain.linearRampToValueAtTime(0, time + chordDurationSec);
-          osc.connect(gain);
-          gain.connect(ctx.destination);
-          osc.start(time);
-          osc.stop(time + chordDurationSec + 0.05);
-        });
+        playChordPad(ctx, ctx.destination, chord, time, chordDurationSec);
       }
     }
 
@@ -270,6 +258,7 @@ export default function GeneratedBackingTrack() {
       micStreamRef.current = stream;
 
       const ctx = new AudioContext();
+      await ensureKarplusStrongWorklet(ctx);
       audioContextRef.current = ctx;
 
       const source = ctx.createMediaStreamSource(stream);
