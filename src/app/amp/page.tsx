@@ -27,6 +27,8 @@ export default function AmpPage() {
   const [reverbMix, setReverbMix] = useState(0);
 
   const [error, setError] = useState<string | null>(null);
+  const [inputLevel, setInputLevel] = useState(0);
+  const [outputLevel, setOutputLevel] = useState(0);
 
   const ampType = AMP_TYPES.find((a) => a.id === ampTypeId) ?? AMP_TYPES[0];
   const ampTypeRef = useRef(ampType);
@@ -63,7 +65,40 @@ export default function AmpPage() {
   const reverbDryRef = useRef<GainNode | null>(null);
   const reverbWetRef = useRef<GainNode | null>(null);
 
+  const inputAnalyserRef = useRef<AnalyserNode | null>(null);
+  const outputAnalyserRef = useRef<AnalyserNode | null>(null);
+  const meterRafRef = useRef<number | null>(null);
+
+  const updateMeters = useCallback(function loop() {
+    const inputAnalyser = inputAnalyserRef.current;
+    const outputAnalyser = outputAnalyserRef.current;
+
+    if (inputAnalyser) {
+      const buffer = new Float32Array(inputAnalyser.fftSize);
+      inputAnalyser.getFloatTimeDomainData(buffer);
+      let sumSq = 0;
+      for (let i = 0; i < buffer.length; i++) sumSq += buffer[i] * buffer[i];
+      setInputLevel(Math.sqrt(sumSq / buffer.length));
+    }
+    if (outputAnalyser) {
+      const buffer = new Float32Array(outputAnalyser.fftSize);
+      outputAnalyser.getFloatTimeDomainData(buffer);
+      let sumSq = 0;
+      for (let i = 0; i < buffer.length; i++) sumSq += buffer[i] * buffer[i];
+      setOutputLevel(Math.sqrt(sumSq / buffer.length));
+    }
+
+    meterRafRef.current = requestAnimationFrame(loop);
+  }, []);
+
   const stop = useCallback(() => {
+    if (meterRafRef.current) cancelAnimationFrame(meterRafRef.current);
+    meterRafRef.current = null;
+    inputAnalyserRef.current = null;
+    outputAnalyserRef.current = null;
+    setInputLevel(0);
+    setOutputLevel(0);
+
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
     audioContextRef.current?.close();
@@ -108,6 +143,11 @@ export default function AmpPage() {
         audioContextRef.current = ctx;
 
         const source = ctx.createMediaStreamSource(stream);
+
+        const inputAnalyser = ctx.createAnalyser();
+        inputAnalyser.fftSize = 1024;
+        source.connect(inputAnalyser);
+        inputAnalyserRef.current = inputAnalyser;
 
         const driveAmount = 1 + (driveRef.current / 10) * ampTypeRef.current.driveMultiplier;
 
@@ -220,6 +260,10 @@ export default function AmpPage() {
         masterGain.gain.value = masterVolume;
         masterGainRef.current = masterGain;
 
+        const outputAnalyser = ctx.createAnalyser();
+        outputAnalyser.fftSize = 1024;
+        outputAnalyserRef.current = outputAnalyser;
+
         source
           .connect(preGain)
           .connect(waveshaper)
@@ -230,7 +274,9 @@ export default function AmpPage() {
           .connect(midFilter)
           .connect(trebleFilter);
 
-        reverbOut.connect(limiter).connect(masterGain).connect(ctx.destination);
+        reverbOut.connect(limiter).connect(masterGain);
+        masterGain.connect(outputAnalyser);
+        masterGain.connect(ctx.destination);
 
         const list = await navigator.mediaDevices.enumerateDevices();
         setDevices(list.filter((d) => d.kind === "audioinput"));
@@ -239,12 +285,13 @@ export default function AmpPage() {
         if (settings?.deviceId) setSelectedDeviceId(settings.deviceId);
 
         setIsRunning(true);
+        meterRafRef.current = requestAnimationFrame(updateMeters);
       } catch {
         setError("마이크/오디오 인터페이스에 접근할 수 없습니다. 브라우저 권한을 확인해주세요.");
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    []
+    [updateMeters]
   );
 
   const handleDeviceChange = async (deviceId: string) => {
@@ -342,6 +389,16 @@ export default function AmpPage() {
               </option>
             ))}
           </select>
+
+          <div className="flex flex-col gap-2 rounded-xl border border-zinc-200 p-3 dark:border-zinc-800">
+            <LevelMeter label="입력 신호" level={inputLevel} />
+            <LevelMeter label="출력 신호" level={outputLevel} />
+            {inputLevel < 0.001 && (
+              <p className="text-xs text-orange-500">
+                입력 신호가 안 잡혀요 — 위 드롭다운에서 오디오 인터페이스를 선택했는지, 인터페이스의 입력 게인 노브가 켜져 있는지 확인해보세요.
+              </p>
+            )}
+          </div>
 
           <div className="flex justify-center gap-2">
             {AMP_TYPES.map((a) => (
@@ -495,6 +552,24 @@ function Knob({ label, value, min, max, step = 1, format, onChange }: KnobProps)
         onChange={(e) => onChange(Number(e.target.value))}
         className="w-full accent-zinc-900 dark:accent-zinc-50"
       />
+    </div>
+  );
+}
+
+function LevelMeter({ label, level }: { label: string; level: number }) {
+  // RMS 0~0.5 정도를 0~100%로 매핑 (0.5 이상은 상당히 큰 신호)
+  const percent = Math.min(100, (level / 0.5) * 100);
+  const isClipping = level > 0.4;
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-16 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">{label}</span>
+      <div className="h-2 flex-1 overflow-hidden rounded-full bg-zinc-200 dark:bg-zinc-800">
+        <div
+          className={`h-full rounded-full transition-all ${isClipping ? "bg-red-500" : "bg-green-500"}`}
+          style={{ width: `${percent}%` }}
+        />
+      </div>
     </div>
   );
 }
