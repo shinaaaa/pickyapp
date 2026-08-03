@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/metronome", label: "메트로놈" },
   { href: "/strumming", label: "스트러밍" },
   { href: "/chords", label: "코드 다이어그램" },
+  { href: "/capo", label: "카포 계산기" },
   { href: "/scales", label: "스케일" },
   { href: "/harmony", label: "화성학" },
 ];
