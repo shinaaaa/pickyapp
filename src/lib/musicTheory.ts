@@ -119,6 +119,56 @@ export function getRomanNumerals(mode: ScaleMode): string[] {
   return mode === "major" ? MAJOR_ROMAN : MINOR_ROMAN;
 }
 
+export interface LabeledChord {
+  label: string;
+  chord: Chord;
+}
+
+// 세컨더리 도미넌트: 대상 코드(토닉·감화음 제외)의 5도 위 음을 근음으로 하는 도미넌트 세븐
+export function getSecondaryDominants(keyRoot: string, mode: ScaleMode): LabeledChord[] {
+  const diatonic = getDiatonicChords(keyRoot, mode, "triad");
+  const romanNumerals = getRomanNumerals(mode);
+  const results: LabeledChord[] = [];
+
+  diatonic.forEach((target, degree) => {
+    if (degree === 0 || target.quality === "diminished") return;
+    const targetRootIndex = NOTE_NAMES.indexOf(target.root);
+    const dominantMidi = BASE_MIDI + targetRootIndex + 7;
+    results.push({ label: `V/${romanNumerals[degree]}`, chord: buildChord(dominantMidi, "dominant7") });
+  });
+
+  return results;
+}
+
+interface BorrowedSpec {
+  label: string;
+  semitoneOffset: number;
+  quality: ChordQuality;
+}
+
+// 메이저 키에서 평행 마이너로부터 빌려오는 대표적인 차용 코드
+const MAJOR_BORROWED: BorrowedSpec[] = [
+  { label: "bIII", semitoneOffset: 3, quality: "major" },
+  { label: "iv", semitoneOffset: 5, quality: "minor" },
+  { label: "bVI", semitoneOffset: 8, quality: "major" },
+  { label: "bVII", semitoneOffset: 10, quality: "major" },
+];
+
+// 마이너 키에서 평행 메이저(도리안·화성 마이너)로부터 빌려오는 대표적인 차용 코드
+const MINOR_BORROWED: BorrowedSpec[] = [
+  { label: "IV", semitoneOffset: 5, quality: "major" },
+  { label: "V", semitoneOffset: 7, quality: "major" },
+];
+
+export function getBorrowedChords(keyRoot: string, mode: ScaleMode): LabeledChord[] {
+  const rootOffset = NOTE_NAMES.indexOf(keyRoot);
+  const specs = mode === "major" ? MAJOR_BORROWED : MINOR_BORROWED;
+  return specs.map((s) => ({
+    label: s.label,
+    chord: buildChord(BASE_MIDI + rootOffset + s.semitoneOffset, s.quality),
+  }));
+}
+
 export function qualitySuffix(quality: ChordQuality): string {
   switch (quality) {
     case "major":

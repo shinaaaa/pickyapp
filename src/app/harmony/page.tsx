@@ -4,20 +4,23 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Chord,
   ChordType,
+  LabeledChord,
   NOTE_NAMES,
   ScaleMode,
+  getBorrowedChords,
   getDiatonicChords,
   getRomanNumerals,
+  getSecondaryDominants,
   qualitySuffix,
 } from "@/lib/musicTheory";
 import { getChordShape } from "@/lib/chords";
 import { playChordPad } from "@/lib/chordAudio";
 import ChordDiagram from "@/components/ChordDiagram";
 
-interface ProgressionEntry {
-  degree: number;
-  chordType: ChordType;
-}
+type ProgressionEntry =
+  | { kind: "diatonic"; degree: number; chordType: ChordType }
+  | { kind: "secondaryDominant"; index: number }
+  | { kind: "borrowed"; index: number };
 
 function chordLabel(root: string, quality: Parameters<typeof qualitySuffix>[0]) {
   return `${root}${qualitySuffix(quality)}`;
@@ -34,20 +37,28 @@ export default function HarmonyPage() {
 
   const diatonicChords = getDiatonicChords(key, mode, chordType);
   const romanNumerals = getRomanNumerals(mode);
+  const secondaryDominants = getSecondaryDominants(key, mode);
+  const borrowedChords = getBorrowedChords(key, mode);
 
   const chordsByType = useRef<Record<ChordType, Chord[]>>({
     triad: getDiatonicChords(key, mode, "triad"),
     seventh: getDiatonicChords(key, mode, "seventh"),
   });
+  const secondaryDominantsRef = useRef<LabeledChord[]>(secondaryDominants);
+  const borrowedChordsRef = useRef<LabeledChord[]>(borrowedChords);
   useEffect(() => {
     chordsByType.current = {
       triad: getDiatonicChords(key, mode, "triad"),
       seventh: getDiatonicChords(key, mode, "seventh"),
     };
+    secondaryDominantsRef.current = getSecondaryDominants(key, mode);
+    borrowedChordsRef.current = getBorrowedChords(key, mode);
   }, [key, mode]);
 
-  const chordForEntry = useCallback((entry: ProgressionEntry) => {
-    return chordsByType.current[entry.chordType][entry.degree];
+  const chordForEntry = useCallback((entry: ProgressionEntry): Chord => {
+    if (entry.kind === "diatonic") return chordsByType.current[entry.chordType][entry.degree];
+    if (entry.kind === "secondaryDominant") return secondaryDominantsRef.current[entry.index].chord;
+    return borrowedChordsRef.current[entry.index].chord;
   }, []);
 
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -78,11 +89,14 @@ export default function HarmonyPage() {
     [ensureAudioContext, chordForEntry]
   );
 
-  const addChord = (degree: number) => {
-    const entry: ProgressionEntry = { degree, chordType };
+  const addEntry = (entry: ProgressionEntry) => {
     setProgression((prev) => [...prev, entry]);
     previewChord(entry);
   };
+
+  const addChord = (degree: number) => addEntry({ kind: "diatonic", degree, chordType });
+  const addSecondaryDominant = (index: number) => addEntry({ kind: "secondaryDominant", index });
+  const addBorrowed = (index: number) => addEntry({ kind: "borrowed", index });
 
   const removeAt = (index: number) => {
     setProgression((prev) => prev.filter((_, i) => i !== index));
@@ -140,8 +154,7 @@ export default function HarmonyPage() {
       <div className="flex w-full max-w-2xl flex-col items-center gap-2">
         <h1 className="text-2xl font-semibold text-zinc-900 dark:text-zinc-50">화성학</h1>
         <p className="text-center text-sm text-zinc-500 dark:text-zinc-400">
-          키의 다이어토닉 코드를 확인하고, 코드를 눌러 나만의 진행을 만들어보세요. 트라이어드와 세븐
-          코드를 섞어서 추가할 수 있어요.
+          키의 다이어토닉 코드, 세컨더리 도미넌트, 차용 코드를 눌러 나만의 진행을 만들어보세요.
         </p>
       </div>
 
@@ -198,32 +211,91 @@ export default function HarmonyPage() {
           </button>
         </div>
         <span className="text-xs text-zinc-400 dark:text-zinc-500">
-          여기서 고른 타입으로 코드가 추가돼요 — 바꿔가며 섞어보세요
+          다이어토닉 코드는 여기서 고른 타입으로 추가돼요 — 바꿔가며 섞어보세요
         </span>
       </div>
 
-      <div className="grid w-full max-w-2xl grid-cols-3 gap-3 sm:grid-cols-7">
-        {diatonicChords.map((chord, degree) => {
-          const shape = getChordShape(chord.root, chord.quality);
-          const label = chordLabel(chord.root, chord.quality);
-          return (
-            <button
-              key={degree}
-              onClick={() => addChord(degree)}
-              className="flex flex-col items-center gap-1 rounded-xl border border-zinc-200 bg-white p-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
-            >
-              <span className="text-xs text-zinc-400 dark:text-zinc-500">{romanNumerals[degree]}</span>
-              <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{label}</span>
-              {shape ? (
-                <ChordDiagram shape={shape} />
-              ) : (
-                <span className="py-4 text-center text-[10px] text-zinc-400 dark:text-zinc-500">
-                  다이어그램 없음
+      <div className="flex w-full max-w-2xl flex-col gap-2">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">다이어토닉 코드</span>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-7">
+          {diatonicChords.map((chord, degree) => {
+            const shape = getChordShape(chord.root, chord.quality);
+            const label = chordLabel(chord.root, chord.quality);
+            return (
+              <button
+                key={degree}
+                onClick={() => addChord(degree)}
+                className="flex flex-col items-center gap-1 rounded-xl border border-zinc-200 bg-white p-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+              >
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">{romanNumerals[degree]}</span>
+                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">{label}</span>
+                {shape ? (
+                  <ChordDiagram shape={shape} />
+                ) : (
+                  <span className="py-4 text-center text-[10px] text-zinc-400 dark:text-zinc-500">
+                    다이어그램 없음
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex w-full max-w-2xl flex-col gap-2">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">세컨더리 도미넌트</span>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-5">
+          {secondaryDominants.map((sd, index) => {
+            const shape = getChordShape(sd.chord.root, sd.chord.quality);
+            return (
+              <button
+                key={sd.label}
+                onClick={() => addSecondaryDominant(index)}
+                className="flex flex-col items-center gap-1 rounded-xl border border-zinc-200 bg-white p-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+              >
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">{sd.label}</span>
+                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                  {chordLabel(sd.chord.root, sd.chord.quality)}
                 </span>
-              )}
-            </button>
-          );
-        })}
+                {shape ? (
+                  <ChordDiagram shape={shape} />
+                ) : (
+                  <span className="py-4 text-center text-[10px] text-zinc-400 dark:text-zinc-500">
+                    다이어그램 없음
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="flex w-full max-w-2xl flex-col gap-2">
+        <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">차용 코드</span>
+        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4">
+          {borrowedChords.map((bc, index) => {
+            const shape = getChordShape(bc.chord.root, bc.chord.quality);
+            return (
+              <button
+                key={bc.label}
+                onClick={() => addBorrowed(index)}
+                className="flex flex-col items-center gap-1 rounded-xl border border-zinc-200 bg-white p-2 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+              >
+                <span className="text-xs text-zinc-400 dark:text-zinc-500">{bc.label}</span>
+                <span className="text-sm font-medium text-zinc-900 dark:text-zinc-50">
+                  {chordLabel(bc.chord.root, bc.chord.quality)}
+                </span>
+                {shape ? (
+                  <ChordDiagram shape={shape} />
+                ) : (
+                  <span className="py-4 text-center text-[10px] text-zinc-400 dark:text-zinc-500">
+                    다이어그램 없음
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="flex w-full max-w-2xl flex-col gap-4 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
