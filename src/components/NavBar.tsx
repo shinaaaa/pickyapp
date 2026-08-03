@@ -8,6 +8,7 @@ const LINKS = [
   { href: "/amp", label: "앰프" },
   { href: "/backing-tracks", label: "백킹 트랙" },
   { href: "/metronome", label: "메트로놈" },
+  { href: "/strumming", label: "스트러밍" },
   { href: "/chords", label: "코드 다이어그램" },
   { href: "/scales", label: "스케일" },
   { href: "/harmony", label: "화성학" },
