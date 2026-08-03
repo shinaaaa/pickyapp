@@ -15,6 +15,7 @@ interface QueuedStep {
 }
 
 const ARROW: Record<Strum, string> = { down: "↓", up: "↑", rest: "·" };
+const INTERVAL_OPTIONS = [10, 15, 20, 30, 60];
 
 export default function StrummingPage() {
   const [bpm, setBpm] = useState(90);
@@ -22,6 +23,12 @@ export default function StrummingPage() {
   const [presetIndex, setPresetIndex] = useState(1);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
+
+  const [rampEnabled, setRampEnabled] = useState(false);
+  const [targetBpm, setTargetBpm] = useState(140);
+  const [stepBpm, setStepBpm] = useState(2);
+  const [intervalSec, setIntervalSec] = useState(15);
+  const rampTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const bpmRef = useRef(bpm);
   const patternRef = useRef(pattern);
@@ -31,6 +38,21 @@ export default function StrummingPage() {
   useEffect(() => {
     patternRef.current = pattern;
   }, [pattern]);
+
+  useEffect(() => {
+    if (rampTimerRef.current) {
+      clearInterval(rampTimerRef.current);
+      rampTimerRef.current = null;
+    }
+    if (isPlaying && rampEnabled) {
+      rampTimerRef.current = setInterval(() => {
+        setBpm((v) => Math.min(targetBpm, v + stepBpm));
+      }, intervalSec * 1000);
+    }
+    return () => {
+      if (rampTimerRef.current) clearInterval(rampTimerRef.current);
+    };
+  }, [isPlaying, rampEnabled, targetBpm, stepBpm, intervalSec]);
 
   const audioContextRef = useRef<AudioContext | null>(null);
   const timerIdRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,6 +183,77 @@ export default function StrummingPage() {
             onChange={(e) => setBpm(Number(e.target.value))}
             className="w-full accent-zinc-900 dark:accent-zinc-50"
           />
+        </div>
+
+        <div className="flex flex-col gap-3 rounded-xl border border-zinc-200 p-4 dark:border-zinc-800">
+          <div className="flex items-center justify-between">
+            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">점진적 속도 증가</span>
+            <button
+              onClick={() => setRampEnabled((v) => !v)}
+              className={`rounded-full px-4 py-1 text-xs transition ${
+                rampEnabled
+                  ? "bg-green-500 text-white"
+                  : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300"
+              }`}
+            >
+              {rampEnabled ? "켜짐" : "꺼짐"}
+            </button>
+          </div>
+
+          {rampEnabled && (
+            <>
+              <div className="flex flex-col gap-1">
+                <div className="flex justify-between text-xs text-zinc-500 dark:text-zinc-400">
+                  <span>목표 BPM</span>
+                  <span>{targetBpm}</span>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_BPM}
+                  max={MAX_BPM}
+                  value={targetBpm}
+                  onChange={(e) => setTargetBpm(Number(e.target.value))}
+                  className="w-full accent-green-500"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <label className="flex flex-1 flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  증가량
+                  <select
+                    value={stepBpm}
+                    onChange={(e) => setStepBpm(Number(e.target.value))}
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  >
+                    {[1, 2, 3, 5].map((n) => (
+                      <option key={n} value={n}>
+                        +{n} BPM
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <label className="flex flex-1 flex-col gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  간격
+                  <select
+                    value={intervalSec}
+                    onChange={(e) => setIntervalSec(Number(e.target.value))}
+                    className="rounded-lg border border-zinc-300 bg-white px-2 py-1.5 text-sm text-zinc-900 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-50"
+                  >
+                    {INTERVAL_OPTIONS.map((s) => (
+                      <option key={s} value={s}>
+                        {s}초마다
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <p className="text-center text-xs text-zinc-400 dark:text-zinc-500">
+                {intervalSec}초마다 +{stepBpm} BPM씩, {targetBpm} BPM까지 자동으로 올라가요
+              </p>
+            </>
+          )}
         </div>
 
         <div className="grid grid-cols-8 gap-1.5">
