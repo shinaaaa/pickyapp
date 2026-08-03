@@ -102,6 +102,16 @@ export default function Home() {
             카포 위치에 따른 실제 코드를 확인하세요
           </span>
         </Link>
+
+        <Link
+          href="/practice-timer"
+          className="flex flex-col gap-1 rounded-xl border border-zinc-200 bg-white p-6 transition hover:border-zinc-400 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:border-zinc-600"
+        >
+          <span className="text-lg font-medium text-zinc-900 dark:text-zinc-50">연습 세션 타이머</span>
+          <span className="text-sm text-zinc-500 dark:text-zinc-400">
+            연습 시간을 재거나 목표 시간을 정해두세요
+          </span>
+        </Link>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ const LINKS = [
   { href: "/strumming", label: "스트러밍" },
   { href: "/chords", label: "코드 다이어그램" },
   { href: "/capo", label: "카포 계산기" },
+  { href: "/practice-timer", label: "연습 타이머" },
   { href: "/scales", label: "스케일" },
   { href: "/harmony", label: "화성학" },
 ];
